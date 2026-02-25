@@ -3,14 +3,14 @@ function getApiBase() {
   try {
     const o = window.location;
     if (o.origin && !o.origin.startsWith("file:")) {
-      if (o.hostname === "localhost" || o.hostname === "http://192.168.31.185") {
+      if (o.hostname === "localhost" || o.hostname === "https://crinkliest-mirna-loftier.ngrok-free.dev") {
         if (o.port === "8000") return "";
-        return "http://192.168.31.185:8000";
+        return "https://crinkliest-mirna-loftier.ngrok-free.dev";
       }
       return "";
     }
   } catch (e) {}
-  return "http://192.168.31.185:8000";
+  return "https://crinkliest-mirna-loftier.ngrok-free.dev";
 }
 const API_BASE = getApiBase();
 const CONVERSATIONS_KEY = "chat_conversations";
