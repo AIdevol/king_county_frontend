@@ -555,6 +555,7 @@ function main() {
   // Mobile: toggle sidebar (history drawer)
   const sidebarToggle = $("sidebar-toggle");
   const sidebarEl = document.querySelector(".app-sidebar");
+  const sidebarClose = $("sidebar-close");
   if (sidebarToggle && sidebarEl) {
     // Show the toggle button only on small screens via JS as well (defensive).
     function updateToggleVisibility() {
@@ -568,6 +569,11 @@ function main() {
     sidebarToggle.addEventListener("click", () => {
       sidebarEl.classList.toggle("open");
     });
+    if (sidebarClose) {
+      sidebarClose.addEventListener("click", () => {
+        sidebarEl.classList.remove("open");
+      });
+    }
   }
 
   const fileInput = $("file-input");
