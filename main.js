@@ -461,6 +461,23 @@ async function sendChat() {
       renderStructuredTableFromContexts([]);
     }
 
+    const wantsExcelDownload =
+      /\b(xlsx|excel|spreadsheet)\b/i.test(text) ||
+      /\b(download|export)\s+(xlsx|excel|spreadsheet)\b/i.test(text);
+
+    const looksLikeCsv =
+      typeof answerText === "string" &&
+      answerText.includes("\n") &&
+      /[,;\t]/.test(answerText.split("\n", 1)[0] || "");
+
+    if (wantsExcelDownload && looksLikeCsv) {
+      // Trigger a client-side download that can be opened in Excel.
+      triggerDownloadFromText(answerText, "dataset_export.xlsx");
+      setChatStatus("idle", "Ready");
+      appendMessage("assistant", "I’ve prepared the data as an Excel-ready file and started the download.");
+      return;
+    }
+
     setChatStatus("idle", "Writing…");
     appendMessageWithTypewriter(answerText, 18, () => {
       setChatStatus("idle", "Ready");
@@ -471,6 +488,22 @@ async function sendChat() {
     setChatStatus("error", "Error");
   } finally {
     $("chat-send").disabled = false;
+  }
+}
+
+function triggerDownloadFromText(text, filename) {
+  try {
+    const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error("Failed to trigger download", e);
   }
 }
 
