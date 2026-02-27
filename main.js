@@ -440,13 +440,30 @@ async function sendChat() {
       answerText = "I couldn't find matching data for that question.";
     }
 
+    const hasContexts = Array.isArray(data.contexts) && data.contexts.length > 0;
+    const wantsTableOnly =
+      /\btable\s+view\b/i.test(text) ||
+      /\btable\s+only\b/i.test(text) ||
+      /\bonly\s+table\b/i.test(text) ||
+      /\bspreadsheet\b/i.test(text) ||
+      /\btable\s+format\b/i.test(text) ||
+      /\btabular\b/i.test(text);
+
     // If the backend returned structured contexts (real rows), render them as a spreadsheet-style table.
-    if (Array.isArray(data.contexts) && data.contexts.length > 0) {
+    if (hasContexts) {
       renderStructuredTableFromContexts(data.contexts);
     } else {
       // Hide table when there is no structured data for this answer.
       renderStructuredTableFromContexts([]);
     }
+
+    // When user explicitly asks for table view, avoid dumping raw row text and just show table + a short note.
+    if (hasContexts && wantsTableOnly) {
+      setChatStatus("idle", "Ready");
+      appendMessage("assistant", "Here is the data in table view.");
+      return;
+    }
+
     setChatStatus("idle", "Writing…");
     appendMessageWithTypewriter(answerText, 18, () => {
       setChatStatus("idle", "Ready");
