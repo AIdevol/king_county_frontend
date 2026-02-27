@@ -552,6 +552,24 @@ function main() {
   const newChatBtn = $("new-chat-btn");
   if (newChatBtn) newChatBtn.addEventListener("click", clearChat);
 
+  // Mobile: toggle sidebar (history drawer)
+  const sidebarToggle = $("sidebar-toggle");
+  const sidebarEl = document.querySelector(".app-sidebar");
+  if (sidebarToggle && sidebarEl) {
+    // Show the toggle button only on small screens via JS as well (defensive).
+    function updateToggleVisibility() {
+      sidebarToggle.style.display = window.innerWidth <= 768 ? "inline-flex" : "none";
+      if (window.innerWidth > 768) {
+        sidebarEl.classList.remove("open");
+      }
+    }
+    updateToggleVisibility();
+    window.addEventListener("resize", updateToggleVisibility);
+    sidebarToggle.addEventListener("click", () => {
+      sidebarEl.classList.toggle("open");
+    });
+  }
+
   const fileInput = $("file-input");
   const fileTrigger = $("file-trigger");
 
