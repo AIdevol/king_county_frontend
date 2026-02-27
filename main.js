@@ -449,19 +449,16 @@ async function sendChat() {
       /\btable\s+format\b/i.test(text) ||
       /\btabular\b/i.test(text);
 
-    // If the backend returned structured contexts (real rows), render them as a spreadsheet-style table.
-    if (hasContexts) {
-      renderStructuredTableFromContexts(data.contexts);
-    } else {
-      // Hide table when there is no structured data for this answer.
-      renderStructuredTableFromContexts([]);
-    }
-
-    // When user explicitly asks for table view, avoid dumping raw row text and just show table + a short note.
+    // Only show the table when the user explicitly asks for a table/spreadsheet view.
     if (hasContexts && wantsTableOnly) {
+      renderStructuredTableFromContexts(data.contexts);
+      // Avoid dumping raw textual rows; just a short confirmation + table.
       setChatStatus("idle", "Ready");
       appendMessage("assistant", "Here is the data in table view.");
       return;
+    } else {
+      // Hide/clear table for all other answers so it doesn't persist.
+      renderStructuredTableFromContexts([]);
     }
 
     setChatStatus("idle", "Writing…");
