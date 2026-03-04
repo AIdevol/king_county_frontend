@@ -612,6 +612,140 @@ function main() {
       sendChat();
     }
   });
+
+  // Dashboard: toggle and load KPI + charts
+  const dashboardToggle = $("dashboard-toggle");
+  const chatView = $("chat-view");
+  const dashboardView = $("dashboard-view");
+  const headerTitle = $("header-title");
+  if (dashboardToggle && chatView && dashboardView) {
+    dashboardToggle.addEventListener("click", () => {
+      const isDashboardVisible = dashboardView.style.display === "block";
+      if (isDashboardVisible) {
+        chatView.style.display = "flex";
+        dashboardView.style.display = "none";
+        if (headerTitle) headerTitle.textContent = "King County Chat";
+      } else {
+        chatView.style.display = "none";
+        dashboardView.style.display = "block";
+        if (headerTitle) headerTitle.textContent = "Property dashboard";
+        loadDashboardKpi();
+      }
+    });
+  }
+}
+
+// --- Dashboard: KPI and charts (by location and price) ---
+let chartByLocation = null;
+let chartByPrice = null;
+
+function formatCurrency(n) {
+  if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return "$" + (n / 1e3).toFixed(0) + "k";
+  return "$" + Number(n).toLocaleString();
+}
+
+function renderDashboardKpiCards(data) {
+  const container = $("dashboard-kpi-cards");
+  if (!container) return;
+  container.innerHTML = `
+    <div class="dashboard-kpi-card">
+      <div class="label">Total parcels</div>
+      <div class="value">${Number(data.total_parcels).toLocaleString()}</div>
+    </div>
+    <div class="dashboard-kpi-card">
+      <div class="label">Avg land value (overall)</div>
+      <div class="value">${formatCurrency(data.avg_land_value_overall || 0)}</div>
+    </div>
+  `;
+}
+
+function renderDashboardCharts(data) {
+  const locCtx = document.getElementById("chart-by-location");
+  const priceCtx = document.getElementById("chart-by-price");
+  if (!locCtx || !priceCtx || typeof Chart === "undefined") return;
+
+  if (chartByLocation) chartByLocation.destroy();
+  if (chartByPrice) chartByPrice.destroy();
+
+  const locItems = (data.by_location || []).slice(0, 15);
+  chartByLocation = new Chart(locCtx, {
+    type: "bar",
+    data: {
+      labels: locItems.map((x) => x.location),
+      datasets: [{
+        label: "Avg land value",
+        data: locItems.map((x) => x.avg_land_value),
+        backgroundColor: "rgba(59, 130, 246, 0.6)",
+        borderColor: "rgb(59, 130, 246)",
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => formatCurrency(ctx.raw),
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { callback: (v) => formatCurrency(v) },
+        },
+      },
+    },
+  });
+
+  const priceItems = data.by_price_range || [];
+  chartByPrice = new Chart(priceCtx, {
+    type: "bar",
+    data: {
+      labels: priceItems.map((x) => x.range),
+      datasets: [{
+        label: "Properties",
+        data: priceItems.map((x) => x.count),
+        backgroundColor: "rgba(34, 197, 94, 0.6)",
+        borderColor: "rgb(34, 197, 94)",
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+      },
+      scales: {
+        y: { beginAtZero: true },
+      },
+    },
+  });
+}
+
+function loadDashboardKpi() {
+  const errEl = $("dashboard-error");
+  const cards = $("dashboard-kpi-cards");
+  if (errEl) errEl.style.display = "none";
+  fetch(`${API_BASE}/v1/dashboard/kpi`)
+    .then((r) => {
+      if (!r.ok) throw new Error(r.statusText || "Dashboard failed");
+      return r.json();
+    })
+    .then((data) => {
+      renderDashboardKpiCards(data);
+      renderDashboardCharts(data);
+    })
+    .catch((e) => {
+      if (errEl) {
+        errEl.textContent = "Could not load dashboard: " + (e.message || "Network error");
+        errEl.style.display = "block";
+      }
+    });
 }
 
 document.addEventListener("DOMContentLoaded", main);
