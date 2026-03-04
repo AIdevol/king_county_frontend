@@ -346,11 +346,9 @@ function renderStructuredTableFromContexts(contexts) {
   }
   thead.appendChild(trHead);
 
-  // Render body (limit to 2000 rows but usually much less)
+  // Render body (no limit – show all rows returned by the API)
   tbody.innerHTML = "";
-  const MAX_ROWS = 2000;
-  const rowsToRender = metaRows.slice(0, MAX_ROWS);
-  for (const row of rowsToRender) {
+  for (const row of metaRows) {
     const tr = document.createElement("tr");
     for (const h of headers) {
       const td = document.createElement("td");
@@ -447,17 +445,22 @@ async function sendChat() {
       /\bonly\s+table\b/i.test(text) ||
       /\bspreadsheet\b/i.test(text) ||
       /\btable\s+format\b/i.test(text) ||
-      /\btabular\b/i.test(text);
+      /\btabular\b/i.test(text) ||
+      /\btable\s*data\b/i.test(text) ||
+      /\b\d+\s*(?:table|data|rows?)\b/i.test(text) ||
+      (hasContexts && /\b(?:give me|show me|get me|list|fetch)\s*(?:the\s+)?\d+\s*(?:table|data|rows?)?/i.test(text));
 
-    // Only show the table when the user explicitly asks for a table/spreadsheet view.
-    if (hasContexts && wantsTableOnly) {
+    // Show table when user asks for table/data/rows or when response is "Showing N rows" with contexts.
+    const answerIsRowList = /^Showing\s+\d+\s+rows:/i.test((data.answer || "").trim());
+    const showTable = hasContexts && (wantsTableOnly || answerIsRowList);
+
+    if (showTable) {
       renderStructuredTableFromContexts(data.contexts);
-      // Avoid dumping raw textual rows; just a short confirmation + table.
       setChatStatus("idle", "Ready");
-      appendMessage("assistant", "Here is the data in table view.");
+      const rowCount = data.contexts.length;
+      appendMessage("assistant", `Here are ${rowCount} row${rowCount !== 1 ? "s" : ""} in table view.`);
       return;
     } else {
-      // Hide/clear table for all other answers so it doesn't persist.
       renderStructuredTableFromContexts([]);
     }
 
