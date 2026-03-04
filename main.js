@@ -227,6 +227,7 @@ const TYPEWRITER_THRESHOLD = 1200;
 
 /**
  * Appends an assistant message with a typewriter effect (or immediately for long content).
+ * Calls onComplete(messageBlock) when finished, where messageBlock is the DOM element.
  */
 function appendMessageWithTypewriter(content, delayMs = 18, onComplete = () => {}) {
   const list = $("chat-messages");
@@ -255,7 +256,11 @@ function appendMessageWithTypewriter(content, delayMs = 18, onComplete = () => {
     chatHistory.push({ role: "assistant", content: fullText });
     persistCurrentConversation();
     renderSidebarHistory();
-    onComplete();
+    try {
+      onComplete(block);
+    } catch (e) {
+      console.error("onComplete callback failed", e);
+    }
   }
 
   if (fullText.length > TYPEWRITER_THRESHOLD) {
@@ -279,6 +284,119 @@ function appendMessageWithTypewriter(content, delayMs = 18, onComplete = () => {
     }
   }
   tick();
+}
+
+// Lightweight currency formatting shared by charts.
+function formatCurrency(n) {
+  if (n == null || isNaN(Number(n))) return String(n);
+  const v = Number(n);
+  if (v >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
+  if (v >= 1e3) return "$" + (v / 1e3).toFixed(0) + "k";
+  return "$" + v.toLocaleString();
+}
+
+/**
+ * Render inline charts (inside the chat message) when contexts look like KPI/aggregation output.
+ * For now we support:
+ * - Average land value by location: columns [location, avg_land_value, total_properties?].
+ */
+function renderInlineChartsFromContexts(messageBlock, contexts, questionText) {
+  if (!messageBlock || !Array.isArray(contexts) || contexts.length === 0) return;
+  if (typeof Chart === "undefined") return;
+
+  const body = messageBlock.querySelector(".message-content");
+  if (!body) return;
+
+  const rows = contexts
+    .map((c) => c && c.metadata)
+    .filter((m) => m && typeof m === "object");
+  if (!rows.length) return;
+
+  const keySet = new Set();
+  for (const r of rows) {
+    for (const k of Object.keys(r)) {
+      keySet.add(String(k).toLowerCase());
+    }
+  }
+
+  const hasLocation = keySet.has("location");
+  const hasAvgLandValue = keySet.has("avg_land_value");
+
+  if (!hasLocation || !hasAvgLandValue) {
+    return;
+  }
+
+  // Normalise and sort by avg_land_value desc, limit to 15 locations.
+  const normRows = rows
+    .map((r) => {
+      const loc = r.location != null ? String(r.location) : "";
+      const avg = Number(r.avg_land_value != null ? r.avg_land_value : r.Avg_Land_Value);
+      const count =
+        r.total_properties != null
+          ? Number(r.total_properties)
+          : r.count != null
+          ? Number(r.count)
+          : null;
+      return { location: loc, avg_land_value: isNaN(avg) ? 0 : avg, total_properties: count };
+    })
+    .filter((r) => r.location);
+
+  if (!normRows.length) return;
+
+  normRows.sort((a, b) => b.avg_land_value - a.avg_land_value);
+  const items = normRows.slice(0, 15);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "inline-charts";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "inline-charts-title";
+  titleEl.textContent = "Average land value by location";
+  wrapper.appendChild(titleEl);
+
+  const canvas = document.createElement("canvas");
+  wrapper.appendChild(canvas);
+  body.appendChild(wrapper);
+
+  const labels = items.map((x) => x.location);
+  const values = items.map((x) => x.avg_land_value);
+
+  // eslint-disable-next-line no-undef
+  new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Avg land value",
+          data: values,
+          backgroundColor: "rgba(59, 130, 246, 0.7)",
+          borderColor: "rgb(59, 130, 246)",
+          borderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => formatCurrency(ctx.raw),
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: (v) => formatCurrency(v),
+          },
+        },
+      },
+    },
+  });
 }
 
 function readFileAsText(file) {
@@ -482,7 +600,14 @@ async function sendChat() {
     }
 
     setChatStatus("idle", "Writing…");
-    appendMessageWithTypewriter(answerText, 18, () => {
+    appendMessageWithTypewriter(answerText, 18, (block) => {
+      try {
+        if (Array.isArray(data.contexts) && data.contexts.length > 0) {
+          renderInlineChartsFromContexts(block, data.contexts, text);
+        }
+      } catch (e) {
+        console.error("Failed to render inline charts", e);
+      }
       setChatStatus("idle", "Ready");
     });
   } catch (err) {
@@ -612,140 +737,6 @@ function main() {
       sendChat();
     }
   });
-
-  // Dashboard: toggle and load KPI + charts
-  const dashboardToggle = $("dashboard-toggle");
-  const chatView = $("chat-view");
-  const dashboardView = $("dashboard-view");
-  const headerTitle = $("header-title");
-  if (dashboardToggle && chatView && dashboardView) {
-    dashboardToggle.addEventListener("click", () => {
-      const isDashboardVisible = dashboardView.style.display === "block";
-      if (isDashboardVisible) {
-        chatView.style.display = "flex";
-        dashboardView.style.display = "none";
-        if (headerTitle) headerTitle.textContent = "King County Chat";
-      } else {
-        chatView.style.display = "none";
-        dashboardView.style.display = "block";
-        if (headerTitle) headerTitle.textContent = "Property dashboard";
-        loadDashboardKpi();
-      }
-    });
-  }
-}
-
-// --- Dashboard: KPI and charts (by location and price) ---
-let chartByLocation = null;
-let chartByPrice = null;
-
-function formatCurrency(n) {
-  if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
-  if (n >= 1e3) return "$" + (n / 1e3).toFixed(0) + "k";
-  return "$" + Number(n).toLocaleString();
-}
-
-function renderDashboardKpiCards(data) {
-  const container = $("dashboard-kpi-cards");
-  if (!container) return;
-  container.innerHTML = `
-    <div class="dashboard-kpi-card">
-      <div class="label">Total parcels</div>
-      <div class="value">${Number(data.total_parcels).toLocaleString()}</div>
-    </div>
-    <div class="dashboard-kpi-card">
-      <div class="label">Avg land value (overall)</div>
-      <div class="value">${formatCurrency(data.avg_land_value_overall || 0)}</div>
-    </div>
-  `;
-}
-
-function renderDashboardCharts(data) {
-  const locCtx = document.getElementById("chart-by-location");
-  const priceCtx = document.getElementById("chart-by-price");
-  if (!locCtx || !priceCtx || typeof Chart === "undefined") return;
-
-  if (chartByLocation) chartByLocation.destroy();
-  if (chartByPrice) chartByPrice.destroy();
-
-  const locItems = (data.by_location || []).slice(0, 15);
-  chartByLocation = new Chart(locCtx, {
-    type: "bar",
-    data: {
-      labels: locItems.map((x) => x.location),
-      datasets: [{
-        label: "Avg land value",
-        data: locItems.map((x) => x.avg_land_value),
-        backgroundColor: "rgba(59, 130, 246, 0.6)",
-        borderColor: "rgb(59, 130, 246)",
-        borderWidth: 1,
-      }],
-    },
-    options: {
-      indexAxis: "y",
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => formatCurrency(ctx.raw),
-          },
-        },
-      },
-      scales: {
-        x: {
-          ticks: { callback: (v) => formatCurrency(v) },
-        },
-      },
-    },
-  });
-
-  const priceItems = data.by_price_range || [];
-  chartByPrice = new Chart(priceCtx, {
-    type: "bar",
-    data: {
-      labels: priceItems.map((x) => x.range),
-      datasets: [{
-        label: "Properties",
-        data: priceItems.map((x) => x.count),
-        backgroundColor: "rgba(34, 197, 94, 0.6)",
-        borderColor: "rgb(34, 197, 94)",
-        borderWidth: 1,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: { display: false },
-      },
-      scales: {
-        y: { beginAtZero: true },
-      },
-    },
-  });
-}
-
-function loadDashboardKpi() {
-  const errEl = $("dashboard-error");
-  const cards = $("dashboard-kpi-cards");
-  if (errEl) errEl.style.display = "none";
-  fetch(`${API_BASE}/v1/dashboard/kpi`)
-    .then((r) => {
-      if (!r.ok) throw new Error(r.statusText || "Dashboard failed");
-      return r.json();
-    })
-    .then((data) => {
-      renderDashboardKpiCards(data);
-      renderDashboardCharts(data);
-    })
-    .catch((e) => {
-      if (errEl) {
-        errEl.textContent = "Could not load dashboard: " + (e.message || "Network error");
-        errEl.style.display = "block";
-      }
-    });
 }
 
 document.addEventListener("DOMContentLoaded", main);
