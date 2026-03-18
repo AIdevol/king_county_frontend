@@ -43,13 +43,89 @@ function persistSaveHistoryPreference(checked) {
   } catch (e) {}
 }
 
-function setChatStatus(state, text) {
-  const dot = $("status-dot");
-  const label = $("chat-status-text");
-  if (dot) {
-    dot.className = "status-dot " + (state === "error" ? "error" : "idle");
+/** Bottom bar removed; status is shown in-chat via setChatAiStatus. */
+function setChatStatus() {}
+
+function removeChatAiStatus() {
+  const el = $("chat-ai-status-row");
+  if (el) el.remove();
+}
+
+/**
+ * Ephemeral AI status row in chat (not added to chatHistory).
+ * @param {"thinking" | "writing" | "error"} variant
+ */
+function setChatAiStatus(text, variant = "thinking") {
+  removeChatAiStatus();
+  const list = $("chat-messages");
+  if (!list) return;
+  const empty = $("chat-empty");
+  if (empty) empty.style.display = "none";
+
+  const block = document.createElement("div");
+  block.id = "chat-ai-status-row";
+  block.className = "message-block assistant chat-ai-status-block";
+  if (variant === "error") block.classList.add("chat-ai-status--error");
+
+  const avatar = document.createElement("div");
+  avatar.className = "message-avatar";
+  avatar.textContent = "AI";
+
+  const body = document.createElement("div");
+  body.className = "message-content chat-ai-status-content";
+
+  if (variant === "thinking" || variant === "writing") {
+    const dots = document.createElement("span");
+    dots.className = "chat-ai-dots";
+    dots.innerHTML = "<span></span><span></span><span></span>";
+    const label = document.createElement("span");
+    label.textContent = text || (variant === "writing" ? "Writing reply…" : "Thinking…");
+    body.appendChild(dots);
+    body.appendChild(label);
+  } else {
+    body.textContent = text || "Error";
   }
-  if (label) label.textContent = text;
+
+  block.appendChild(avatar);
+  block.appendChild(body);
+  list.appendChild(block);
+
+  const scrollEl = $("chat-view");
+  if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+}
+
+/** Brief “Ready” line in chat after a response; fades out. */
+function showChatAiReadyBrief() {
+  const existing = document.getElementById("chat-ai-ready-ephemeral");
+  if (existing) existing.remove();
+
+  const list = $("chat-messages");
+  if (!list) return;
+
+  const block = document.createElement("div");
+  block.id = "chat-ai-ready-ephemeral";
+  block.className = "message-block assistant chat-ai-ephemeral-ready";
+
+  const avatar = document.createElement("div");
+  avatar.className = "message-avatar";
+  avatar.textContent = "AI";
+
+  const body = document.createElement("div");
+  body.className = "message-content";
+  body.textContent = "Ready";
+
+  block.appendChild(avatar);
+  block.appendChild(body);
+  list.appendChild(block);
+
+  const scrollEl = $("chat-view");
+  if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+
+  setTimeout(() => {
+    block.style.transition = "opacity 0.45s ease";
+    block.style.opacity = "0";
+  }, 900);
+  setTimeout(() => block.remove(), 1500);
 }
 
 function toggleEmptyState() {
@@ -153,6 +229,9 @@ function selectConversation(id) {
 
   const list = $("chat-messages");
   if (list) list.innerHTML = "";
+  removeChatAiStatus();
+  const readyEphem = document.getElementById("chat-ai-ready-ephemeral");
+  if (readyEphem) readyEphem.remove();
   for (const m of chatHistory) {
     if (m.role !== "user" && m.role !== "assistant") continue;
     if (m.kind === "table" && Array.isArray(m.tableContexts)) {
@@ -245,6 +324,9 @@ function clearChat() {
 
   const list = $("chat-messages");
   if (list) list.innerHTML = "";
+  removeChatAiStatus();
+  const readyEphem = document.getElementById("chat-ai-ready-ephemeral");
+  if (readyEphem) readyEphem.remove();
   toggleEmptyState();
   renderSidebarHistory();
 }
@@ -556,7 +638,8 @@ async function sendChat() {
   const selectedFileBar = $("selected-file-bar");
   const text = input.value.trim();
   if (!text) {
-    setChatStatus("error", "Please enter a message first.");
+    setChatAiStatus("Please enter a message first.", "error");
+    setTimeout(removeChatAiStatus, 4500);
     return;
   }
 
@@ -564,7 +647,8 @@ async function sendChat() {
   const file = fileInput && fileInput.files && fileInput.files[0];
   const hasFileUi = selectedFileBar && selectedFileBar.classList.contains("visible");
   if (hasFileUi && !file) {
-    setChatStatus("error", "File was cleared. Please select your file again.");
+    setChatAiStatus("File was cleared — select your file again.", "error");
+    setTimeout(removeChatAiStatus, 4500);
     return;
   }
 
@@ -581,7 +665,7 @@ async function sendChat() {
   const userName = ($("user-name-input") && $("user-name-input").value || "").trim();
 
   $("chat-send").disabled = true;
-  setChatStatus("idle", "Thinking…");
+  setChatAiStatus("Thinking…", "thinking");
 
   try {
     let res;
@@ -639,9 +723,10 @@ async function sendChat() {
     const showTable = hasContexts && (wantsTableOnly || answerIsRowList);
 
     if (showTable) {
-      setChatStatus("idle", "Ready");
+      removeChatAiStatus();
       const rowCount = data.contexts.length;
       appendAssistantTableInChat(`Structured data · ${rowCount} row${rowCount !== 1 ? "s" : ""}`, data.contexts);
+      showChatAiReadyBrief();
       return;
     }
 
@@ -655,14 +740,14 @@ async function sendChat() {
       /[,;\t]/.test(answerText.split("\n", 1)[0] || "");
 
     if (wantsExcelDownload && looksLikeCsv) {
-      // Trigger a client-side download that can be opened in Excel.
+      removeChatAiStatus();
       triggerDownloadFromText(answerText, "dataset_export.xlsx");
-      setChatStatus("idle", "Ready");
       appendMessage("assistant", "I’ve prepared the data as an Excel-ready file and started the download.");
+      showChatAiReadyBrief();
       return;
     }
 
-    setChatStatus("idle", "Writing…");
+    removeChatAiStatus();
     appendMessageWithTypewriter(answerText, 18, (block) => {
       try {
         if (Array.isArray(data.contexts) && data.contexts.length > 0) {
@@ -671,12 +756,12 @@ async function sendChat() {
       } catch (e) {
         console.error("Failed to render inline charts", e);
       }
-      setChatStatus("idle", "Ready");
+      showChatAiReadyBrief();
     });
   } catch (err) {
     console.error(err);
+    removeChatAiStatus();
     appendMessage("assistant", `Error: ${(err && err.message) || String(err)}`);
-    setChatStatus("error", "Error");
   } finally {
     $("chat-send").disabled = false;
   }

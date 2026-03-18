@@ -668,30 +668,63 @@
         height: 18px;
       }
 
-      /* Status - minimal */
+      /* Bottom status bar hidden — status lives in chat as AI rows */
       .status-bar {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        font-size: 11px;
-        color: var(--text-secondary);
+        display: none;
       }
 
-      .status-bar .status-dot {
+      /* In-chat AI status (Thinking / Writing / Ready) — not saved to history */
+      .chat-ai-status-block {
+        opacity: 0.92;
+      }
+      .chat-ai-status-block .message-content {
+        white-space: normal;
+      }
+      .chat-ai-status-content {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+        color: var(--text-secondary);
+        padding: 4px 0;
+      }
+      .chat-ai-status--error .chat-ai-status-content {
+        color: #f87171;
+      }
+      .chat-ai-dots {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .chat-ai-dots span {
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: #6b6b6b;
-        flex-shrink: 0;
+        background: var(--accent);
+        animation: chatAiDot 1.2s ease-in-out infinite;
       }
-
-      .status-bar .status-dot.idle {
-        background: #6b6b6b;
+      .chat-ai-dots span:nth-child(2) {
+        animation-delay: 0.2s;
       }
-
-      .status-bar .status-dot.error {
-        background: #ef4444;
+      .chat-ai-dots span:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      @keyframes chatAiDot {
+        0%,
+        80%,
+        100% {
+          opacity: 0.25;
+          transform: scale(0.85);
+        }
+        40% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+      .chat-ai-ephemeral-ready .message-content {
+        font-size: 13px;
+        color: var(--accent);
+        white-space: normal;
       }
 
       /* Mobile: turn sidebar into slide-in drawer */
@@ -878,10 +911,7 @@
             </svg>
           </button>
         </div>
-        <div class="status-bar">
-          <span class="status-dot idle" id="status-dot"></span>
-          <span id="chat-status-text">Idle</span>
-        </div>
+        <div class="status-bar" aria-hidden="true"></div>
       </div>
     </main>
 
