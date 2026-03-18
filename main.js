@@ -451,7 +451,18 @@ function createChatTableElementFromContexts(contexts) {
   for (const row of metaRows) {
     for (const k of Object.keys(row)) headerSet.add(String(k));
   }
-  const headers = Array.from(headerSet);
+  const priority = [
+    "Dealer Name",
+    "Dealer",
+    "Sales Rep Name",
+    "ID",
+    "State",
+    "Partner Name",
+    "City",
+    "Street",
+  ];
+  const rest = Array.from(headerSet).filter((h) => !priority.includes(h)).sort((a, b) => a.localeCompare(b));
+  const headers = [...priority.filter((h) => headerSet.has(h)), ...rest];
   if (!headers.length) return null;
 
   const scroll = document.createElement("div");
@@ -495,7 +506,7 @@ function appendAssistantTableInChat(intro, contexts, options = {}) {
   if (empty) empty.style.display = "none";
 
   const block = document.createElement("div");
-  block.className = "message-block assistant";
+  block.className = "message-block assistant message-block--with-table";
   const avatar = document.createElement("div");
   avatar.className = "message-avatar";
   avatar.textContent = "AI";
