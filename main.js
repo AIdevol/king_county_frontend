@@ -579,7 +579,8 @@ async function sendChat() {
       appendMessage("assistant", `Here are ${rowCount} row${rowCount !== 1 ? "s" : ""} in table view.`);
       return;
     } else {
-      renderStructuredTableFromContexts([]);
+      // Do NOT clear the previously rendered table.
+      // This keeps the last table visible while the chat continues with text-only answers.
     }
 
     const wantsExcelDownload =
