@@ -327,6 +327,45 @@
         color: var(--text-primary);
       }
 
+      /* Table embedded in chat (scrolls with messages; inner area scrolls for wide/tall data) */
+      .chat-table-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin: 0 0 8px;
+      }
+      .chat-table-scroll {
+        max-height: min(45vh, 360px);
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-top: 8px;
+        background: var(--bg-secondary);
+      }
+      .chat-table-scroll table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .chat-table-scroll th,
+      .chat-table-scroll td {
+        padding: 4px 6px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+      }
+      .chat-table-scroll th {
+        position: sticky;
+        top: 0;
+        background: var(--bg-secondary);
+        z-index: 1;
+      }
+      .chat-table-scroll td {
+        white-space: nowrap;
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
       .message-block.user .message-content {
         color: var(--text-primary);
       }
@@ -725,17 +764,6 @@
           <div id="chat-empty" class="chat-empty">
             <h1>How can I help you today?</h1>
             <p>Ask anything about King County or attach a file (CSV, Excel, PDF, Word, etc.) to query your data.</p>
-          </div>
-          <div id="table-view" style="margin-top: 16px; display: none;">
-            <h2 style="font-size: 14px; font-weight: 600; margin: 0 0 8px; color: var(--text-secondary);">
-              Structured data view
-            </h2>
-            <div style="max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;">
-              <table id="table-view-table" style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                <thead></thead>
-                <tbody></tbody>
-              </table>
-            </div>
           </div>
         </div>
       </div>

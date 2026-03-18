@@ -68,6 +68,50 @@ function getConversationTitle(messages) {
   return (t.length < firstUser.content.trim().length ? t + "…" : t) || "New chat";
 }
 
+/** Persist assistant table messages (cap rows for localStorage size). */
+const MAX_TABLE_ROWS_STORED = 400;
+
+function cloneContextsForHistory(contexts) {
+  if (!Array.isArray(contexts)) return [];
+  const slice = contexts.slice(0, MAX_TABLE_ROWS_STORED);
+  try {
+    return JSON.parse(JSON.stringify(slice));
+  } catch (e) {
+    return slice.map((c) => ({
+      row_index: c && c.row_index,
+      metadata: c && c.metadata && typeof c.metadata === "object" ? { ...c.metadata } : {},
+      text: c && c.text,
+    }));
+  }
+}
+
+function messageToPersistPayload(m) {
+  const o = {
+    role: m.role,
+    content: m.content || "",
+    attachedFileName: m.attachedFileName,
+  };
+  if (m.kind === "table" && Array.isArray(m.tableContexts)) {
+    o.kind = "table";
+    o.tableContexts = m.tableContexts.slice(0, MAX_TABLE_ROWS_STORED);
+  }
+  return o;
+}
+
+function messageFromStorage(m) {
+  if (!m || !m.role) return null;
+  const o = {
+    role: m.role,
+    content: m.content || "",
+    attachedFileName: m.attachedFileName,
+  };
+  if (m.kind === "table" && Array.isArray(m.tableContexts) && m.tableContexts.length) {
+    o.kind = "table";
+    o.tableContexts = m.tableContexts;
+  }
+  return o;
+}
+
 function loadConversationsFromStorage() {
   try {
     const raw = localStorage.getItem(CONVERSATIONS_KEY);
@@ -105,17 +149,17 @@ function selectConversation(id) {
   const convo = conversations.find((c) => c.id === id);
   if (!convo || !Array.isArray(convo.messages)) return;
   currentConversationId = id;
-  chatHistory = convo.messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-    attachedFileName: m.attachedFileName,
-  }));
+  chatHistory = convo.messages.map(messageFromStorage).filter(Boolean);
 
   const list = $("chat-messages");
   if (list) list.innerHTML = "";
   for (const m of chatHistory) {
-    if (m.role === "user" || m.role === "assistant")
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    if (m.kind === "table" && Array.isArray(m.tableContexts)) {
+      appendAssistantTableInChat(m.content || "Structured data", m.tableContexts, { skipHistory: true });
+    } else {
       renderMessageOnly(m.role, m.content, m.attachedFileName);
+    }
   }
   const scrollEl = $("chat-view");
   if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
@@ -160,22 +204,14 @@ function persistCurrentConversation() {
     const convo = conversations.find((c) => c.id === currentConversationId);
     if (convo) {
       convo.title = title;
-      convo.messages = chatHistory.map((m) => ({
-        role: m.role,
-        content: m.content,
-        attachedFileName: m.attachedFileName,
-      }));
+      convo.messages = chatHistory.map(messageToPersistPayload);
     }
   } else {
     currentConversationId = generateId();
     conversations.unshift({
       id: currentConversationId,
       title,
-      messages: chatHistory.map((m) => ({
-        role: m.role,
-        content: m.content,
-        attachedFileName: m.attachedFileName,
-      })),
+      messages: chatHistory.map(messageToPersistPayload),
     });
   }
   saveConversationsToStorage();
@@ -187,11 +223,7 @@ function persistCurrentConversation() {
 function clearChat() {
   if (chatHistory.length && currentConversationId) {
     const convo = conversations.find((c) => c.id === currentConversationId);
-    const messages = chatHistory.map((m) => ({
-      role: m.role,
-      content: m.content,
-      attachedFileName: m.attachedFileName,
-    }));
+    const messages = chatHistory.map(messageToPersistPayload);
     if (convo) {
       convo.messages = messages;
       convo.title = getConversationTitle(chatHistory);
@@ -408,80 +440,103 @@ function readFileAsText(file) {
   });
 }
 
-function renderStructuredTableFromContexts(contexts) {
-  const container = $("table-view");
-  const table = $("table-view-table");
-  if (!container || !table) return;
-  const thead = table.querySelector("thead");
-  const tbody = table.querySelector("tbody");
-  if (!thead || !tbody) return;
-
-  if (!Array.isArray(contexts) || contexts.length === 0) {
-    container.style.display = "none";
-    thead.innerHTML = "";
-    tbody.innerHTML = "";
-    return;
-  }
-
-  // Collect headers from metadata keys
-  const metaRows = contexts
+/** Build scrollable table element for in-chat display */
+function createChatTableElementFromContexts(contexts) {
+  const metaRows = (contexts || [])
     .map((c) => c && c.metadata)
     .filter((m) => m && typeof m === "object");
-  if (!metaRows.length) {
-    container.style.display = "none";
-    thead.innerHTML = "";
-    tbody.innerHTML = "";
-    return;
-  }
+  if (!metaRows.length) return null;
 
   const headerSet = new Set();
   for (const row of metaRows) {
-    for (const k of Object.keys(row)) {
-      headerSet.add(String(k));
-    }
+    for (const k of Object.keys(row)) headerSet.add(String(k));
   }
   const headers = Array.from(headerSet);
-  if (!headers.length) {
-    container.style.display = "none";
-    thead.innerHTML = "";
-    tbody.innerHTML = "";
-    return;
-  }
+  if (!headers.length) return null;
 
-  // Render header
-  thead.innerHTML = "";
+  const scroll = document.createElement("div");
+  scroll.className = "chat-table-scroll";
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const tbody = document.createElement("tbody");
   const trHead = document.createElement("tr");
   for (const h of headers) {
     const th = document.createElement("th");
     th.textContent = h;
-    th.style.padding = "4px 6px";
-    th.style.borderBottom = "1px solid var(--border)";
-    th.style.position = "sticky";
-    th.style.top = "0";
-    th.style.background = "var(--bg-secondary)";
-    th.style.textAlign = "left";
     trHead.appendChild(th);
   }
   thead.appendChild(trHead);
-
-  // Render body (no limit – show all rows returned by the API)
-  tbody.innerHTML = "";
   for (const row of metaRows) {
     const tr = document.createElement("tr");
     for (const h of headers) {
       const td = document.createElement("td");
       td.textContent = row[h] != null ? String(row[h]) : "";
-      td.style.padding = "3px 6px";
-      td.style.borderBottom = "1px solid var(--border)";
-      td.style.whiteSpace = "nowrap";
-      td.style.textOverflow = "ellipsis";
-      td.style.overflow = "hidden";
       tr.appendChild(td);
     }
     tbody.appendChild(tr);
   }
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  scroll.appendChild(table);
+  return scroll;
+}
 
-  container.style.display = "block";
+/**
+ * Append assistant message with inline table (part of scrollable chat; stays in history).
+ * @param {string} intro - Short label e.g. row count
+ * @param {Array} contexts - API contexts with metadata
+ * @param {{ skipHistory?: boolean }} options - skipHistory when re-rendering from storage
+ */
+function appendAssistantTableInChat(intro, contexts, options = {}) {
+  const { skipHistory = false } = options;
+  const list = $("chat-messages");
+  if (!list) return;
+  const empty = $("chat-empty");
+  if (empty) empty.style.display = "none";
+
+  const block = document.createElement("div");
+  block.className = "message-block assistant";
+  const avatar = document.createElement("div");
+  avatar.className = "message-avatar";
+  avatar.textContent = "AI";
+  const body = document.createElement("div");
+  body.className = "message-content";
+
+  const label = document.createElement("div");
+  label.className = "chat-table-label";
+  label.textContent = intro || "Structured data";
+  body.appendChild(label);
+
+  const tblWrap = createChatTableElementFromContexts(contexts);
+  if (tblWrap) {
+    body.appendChild(tblWrap);
+  } else {
+    const p = document.createElement("p");
+    p.style.fontSize = "13px";
+    p.style.color = "var(--text-secondary)";
+    p.style.margin = "0";
+    p.textContent = "No tabular rows to display.";
+    body.appendChild(p);
+  }
+
+  block.appendChild(avatar);
+  block.appendChild(body);
+  list.appendChild(block);
+
+  const scrollEl = $("chat-view");
+  if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+
+  if (!skipHistory) {
+    chatHistory.push({
+      role: "assistant",
+      content: intro || "Structured data",
+      kind: "table",
+      tableContexts: cloneContextsForHistory(contexts),
+    });
+    persistCurrentConversation();
+    renderSidebarHistory();
+  }
+  toggleEmptyState();
 }
 
 async function sendChat() {
@@ -573,14 +628,10 @@ async function sendChat() {
     const showTable = hasContexts && (wantsTableOnly || answerIsRowList);
 
     if (showTable) {
-      renderStructuredTableFromContexts(data.contexts);
       setChatStatus("idle", "Ready");
       const rowCount = data.contexts.length;
-      appendMessage("assistant", `Here are ${rowCount} row${rowCount !== 1 ? "s" : ""} in table view.`);
+      appendAssistantTableInChat(`Structured data · ${rowCount} row${rowCount !== 1 ? "s" : ""}`, data.contexts);
       return;
-    } else {
-      // Do NOT clear the previously rendered table.
-      // This keeps the last table visible while the chat continues with text-only answers.
     }
 
     const wantsExcelDownload =
